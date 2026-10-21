@@ -1,0 +1,7 @@
+project_id = "elibrary"
+
+[functions.get-book-url]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
