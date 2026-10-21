@@ -19,3 +19,4 @@ dist-ssr/
 # Local editor and operating-system files
 .vscode/
 .DS_Store
+supabase/.temp/
