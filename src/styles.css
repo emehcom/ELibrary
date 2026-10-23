@@ -30,3 +30,90 @@
 .button-danger:disabled { opacity: .6; }
 @media (max-width: 680px) { .admin-row { align-items: flex-start; flex-wrap: wrap; } .admin-row-main { flex-basis: 100%; } .account-danger-zone { align-items: flex-start; flex-direction: column; } }
 .inline-button { border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; font: inherit; }
+
+.pdf-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 10px 12px;
+  background: var(--surface, #fff);
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+
+.pdf-navigation span {
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.pdf-navigation button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pdf-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 0 32px;
+  background: #e9eaed;
+}
+
+.pdf-document {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.pdf-document .react-pdf__Document {
+  max-width: 100%;
+}
+
+.pdf-document .react-pdf__Page {
+  margin: 0 auto 20px;
+  background: white;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 12%);
+}
+
+.pdf-document .react-pdf__Page canvas {
+  display: block;
+  max-width: 100%;
+  height: auto !important;
+}
+
+.pdf-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.pdf-loading p {
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .reader-toolbar {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .reader-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .reader-controls {
+    gap: 4px;
+  }
+
+  .pdf-stage {
+    padding-top: 10px;
+  }
+}
