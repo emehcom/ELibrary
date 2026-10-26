@@ -4,6 +4,8 @@ import { BookOpen } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 
+const EMAIL_REDIRECT_URL = "https://emehcom.github.io/ELibrary/";
+
 export default function Signup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -34,27 +36,27 @@ export default function Signup() {
 
     try {
       const { data, error: authError } = await supabase.auth.signUp({
-        email: normalizedEmail,
-        password,
-        options: {
-          data: { display_name: name.trim() },
-        },
-      });
+  email: normalizedEmail,
+  password,
+  options: {
+    data: { display_name: name.trim() },
+    emailRedirectTo: EMAIL_REDIRECT_URL,
+  },
+});
 
-      if (authError) {
-        setError(authError.message);
-        return;
-      }
+if (authError) {
+  setError(authError.message);
+  return;
+}
 
-      if (data.session) {
-        navigate("/books", { replace: true });
-        return;
-      }
+if (data.session) {
+  navigate("/books", { replace: true });
+  return;
+}
 
-      navigate("/verify-email", {
-        replace: true,
-        state: { email: normalizedEmail },
-      });
+setNotice(
+  "Your account request was submitted. Check your email and spam folder, then click the confirmation link to activate your account."
+);
     } catch {
       setError("Something went wrong while creating your account. Please try again.");
     } finally {

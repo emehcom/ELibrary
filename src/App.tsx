@@ -1,4 +1,4 @@
-import VerifyEmail from "./pages/VerifyEmail";
+
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthProvider";
 import Layout from "./components/Layout";
@@ -28,7 +28,6 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingRedirect />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route element={<ProtectedRoute />}>
