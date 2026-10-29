@@ -36,7 +36,7 @@ export default function Layout() {
 </main>
 
 <FavourChat userId={user?.id ?? null} />
-      <footer className="footer"><span>© {new Date().getFullYear()} Elibrary</span><span>A little more room to read.</span></footer>
+      <footer className="footer"><span>© {new Date().getFullYear()} Elibrary</span><span>A little More Room to Read.</span></footer>
     </div>
   );
 }
