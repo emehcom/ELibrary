@@ -2,7 +2,7 @@ import { BookOpen, LayoutDashboard, LogOut, Search, UploadCloud } from "lucide-r
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
-import FavourChat from "./FavourChat.tsx";
+//import FavourChat from "./FavourChat.tsx";
 
 export default function Layout() {
   const { user, role } = useAuth();
