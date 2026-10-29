@@ -2,6 +2,7 @@ import { BookOpen, LayoutDashboard, LogOut, Search, UploadCloud } from "lucide-r
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
+import FavourChat from "./FavourChat";
 
 export default function Layout() {
   const { user, role } = useAuth();
@@ -30,7 +31,11 @@ export default function Layout() {
           <button className="icon-button" onClick={signOut} title="Sign out" aria-label="Sign out"><LogOut size={17} /></button>
         </div>
       </header>
-      <main className="page-wrap"><Outlet /></main>
+      <main className="page-wrap">
+  <Outlet />
+</main>
+
+<FavourChat userId={user?.id ?? null} />
       <footer className="footer"><span>© {new Date().getFullYear()} Elibrary</span><span>A little more room to read.</span></footer>
     </div>
   );
