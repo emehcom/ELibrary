@@ -23,10 +23,17 @@ function LandingRedirect() {
         <div className="elibrary-loader">
           <div className="elibrary-loader-ring" />
           <img
-            src={`${import.meta.env.BASE_URL}elibrary-icon.png`}
-            alt="Elibrary"
-            className="elibrary-loader-icon"
-          />
+  src={`${import.meta.env.BASE_URL}elibrary-icon.png`}
+  alt="Elibrary"
+  style={{
+    width: "55px",
+    height: "55px",
+    objectFit: "contain",
+    display: "block",
+    position: "relative",
+    zIndex: 2,
+  }}
+/>
         </div>
       </div>
     );
