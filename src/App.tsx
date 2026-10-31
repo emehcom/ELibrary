@@ -19,9 +19,15 @@ function LandingRedirect() {
 
   if (loading) {
     return (
-      <div className="screen-center">
-        <div className="spinner" />
-        <p>Opening Elibrary…</p>
+      <div className="screen-center elibrary-loading">
+        <div className="elibrary-loader">
+          <div className="elibrary-loader-ring" />
+          <img
+            src={`${import.meta.env.BASE_URL}elibrary-icon.png`}
+            alt="Elibrary"
+            className="elibrary-loader-icon"
+          />
+        </div>
       </div>
     );
   }

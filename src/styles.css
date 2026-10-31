@@ -370,3 +370,46 @@
     bottom: 12px;
   }
 }
+
+/* Elibrary initial loading screen */
+.elibrary-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background, #ffffff);
+}
+
+.elibrary-loader {
+  width: 110px;
+  height: 110px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.elibrary-loader-ring {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(59, 130, 246, 0.15);
+  border-top-color: #2563eb;
+  border-right-color: #2563eb;
+  border-radius: 50%;
+  animation: elibrary-spin 1s linear infinite;
+}
+
+.elibrary-loader-icon {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  border-radius: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes elibrary-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
