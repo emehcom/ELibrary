@@ -93,6 +93,7 @@ export default function FavourChat({ userId }: FavourChatProps) {
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(message.content);
+
     utterance.onstart = () => setSpeakingId(message.id);
     utterance.onend = () => setSpeakingId(null);
     utterance.onerror = () => setSpeakingId(null);
@@ -100,67 +101,115 @@ export default function FavourChat({ userId }: FavourChatProps) {
     window.speechSynthesis.speak(utterance);
   }
 
-  
-async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
+  async function refreshMessages() {
+    if (!userId) return;
 
-  const content = input.trim();
-  if (!content || sending || !userId) return;
+    const { data, error } = await supabase
+      .from("favour_messages")
+      .select("id, role, content")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .limit(200);
 
-  setSending(true);
-  setNotice("");
+    if (error) {
+      console.error("Could not refresh Favour messages:", error.message);
+      return;
+    }
 
-  // Save the user's message first.
-  const { data: savedUserMessage, error: saveError } = await supabase
-    .from("favour_messages")
-    .insert({
-      user_id: userId,
-      role: "user",
-      content,
-    })
-    .select("id, role, content")
-    .single();
-
-  if (saveError) {
-    console.error("Could not save user message:", saveError.message);
-    setNotice("Your message couldn't be saved. Please try again.");
-    setSending(false);
-    return;
+    setMessages((data ?? []) as ChatMessage[]);
   }
 
-  setMessages((current) => [
-    ...current,
-    savedUserMessage as ChatMessage,
-  ]);
-  setInput("");
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-  // Ask the secure Supabase Edge Function to generate a reply.
-  const { data, error } = await supabase.functions.invoke("favour-chat", {
-    body: {
-      message: content,
-    },
-  });
+    const content = input.trim();
 
-  if (error || !data?.message?.content) {
-    console.error("Favour AI request failed:", error ?? data);
-    setNotice(
-      data?.error ??
-        "Favour couldn't reply just now. Your message is saved; please try again later.",
-    );
-    setSending(false);
-    return;
+    if (!content || sending || !userId) return;
+
+    setSending(true);
+    setNotice("");
+    setInput("");
+
+    try {
+      // The Edge Function now saves both the user message and AI response.
+      // Do not insert the user's message directly from this component.
+      const { data, error } = await supabase.functions.invoke("favour-chat", {
+        body: {
+          message: content,
+        },
+      });
+
+      if (error || !data) {
+        console.error("Favour AI request failed:", error ?? data);
+
+        setNotice(
+          data?.error ??
+            "Favour couldn't reply just now. Please try again later.",
+        );
+
+        // The Edge Function may already have saved the user's message.
+        // Refresh the conversation to avoid losing it from the interface.
+        await refreshMessages();
+        return;
+      }
+
+      if (data.userMessage) {
+        setMessages((current) => [
+          ...current,
+          data.userMessage as ChatMessage,
+        ]);
+      }
+
+      if (data.assistantMessage) {
+        setMessages((current) => [
+          ...current,
+          data.assistantMessage as ChatMessage,
+        ]);
+
+        setNotice(
+          data.provider
+            ? `Answered using ${data.provider}.`
+            : "",
+        );
+
+        return;
+      }
+
+      // The AI generated a reply, but the database could not save it.
+      if (typeof data.reply === "string" && data.reply.trim()) {
+        const temporaryReply: ChatMessage = {
+          id: `temporary-${Date.now()}`,
+          role: "assistant",
+          content: data.reply,
+        };
+
+        setMessages((current) => [...current, temporaryReply]);
+
+        setNotice(
+          data.warning ??
+            "Favour replied, but the response could not be saved to your history.",
+        );
+
+        return;
+      }
+
+      setNotice(
+        data.error ?? "Favour could not generate a response. Please try again.",
+      );
+
+      await refreshMessages();
+    } catch (error) {
+      console.error("Unexpected Favour chat error:", error);
+
+      setNotice(
+        "A connection error occurred. Check your internet connection and try again.",
+      );
+
+      await refreshMessages();
+    } finally {
+      setSending(false);
+    }
   }
-
-  // The Edge Function has already saved the assistant's reply.
-  setMessages((current) => [
-    ...current,
-    data.message as ChatMessage,
-  ]);
-
-  setNotice("");
-  setSending(false);
-}
-
 
   return (
     <div className="favour-root">
@@ -197,7 +246,9 @@ async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 
           <div className="favour-messages">
             {loadingMessages && (
-              <p className="favour-subtitle">Loading your conversation…</p>
+              <p className="favour-subtitle">
+                Loading your conversation…
+              </p>
             )}
 
             {!loadingMessages && messages.length === 0 && (
@@ -206,6 +257,7 @@ async function handleSubmit(event: FormEvent<HTMLFormElement>) {
                   Hello! I'm Favour, your personal learning assistant.
                   Your conversation will be saved here as we learn together.
                 </p>
+
                 <button
                   type="button"
                   className="favour-speak-button"
@@ -223,6 +275,7 @@ async function handleSubmit(event: FormEvent<HTMLFormElement>) {
                   ) : (
                     <Volume2 size={17} />
                   )}
+
                   <span>
                     {speakingId === "welcome" ? "Stop" : "Read aloud"}
                   </span>
@@ -258,6 +311,7 @@ async function handleSubmit(event: FormEvent<HTMLFormElement>) {
                     ) : (
                       <Volume2 size={17} />
                     )}
+
                     <span>
                       {speakingId === message.id ? "Stop" : "Read aloud"}
                     </span>
@@ -279,7 +333,9 @@ async function handleSubmit(event: FormEvent<HTMLFormElement>) {
                 setInput(event.target.value);
                 setNotice("");
               }}
-              placeholder={sending ? "Favour is thinking..." : "Ask Favour something..."}
+              placeholder={
+                sending ? "Favour is thinking..." : "Ask Favour something..."
+              }
               aria-label="Message Favour"
               maxLength={4000}
               disabled={sending || loadingMessages}
