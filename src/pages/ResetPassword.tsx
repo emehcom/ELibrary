@@ -34,8 +34,7 @@ export default function ResetPassword() {
 
     try {
       if (mode === "request") {
-        const redirectTo =
-          `${window.location.origin}${import.meta.env.BASE_URL}#/reset-password`;
+        const redirectTo = "https://myelibrary.org/#/reset-password";
 
         const { error: resetError } =
           await supabase.auth.resetPasswordForEmail(email.trim(), {

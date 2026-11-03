@@ -4,7 +4,7 @@ import { BookOpen } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 
-const EMAIL_REDIRECT_URL = "https://emehcom.github.io/ELibrary/";
+const EMAIL_REDIRECT_URL = "https://myelibrary.org/";
 
 export default function Signup() {
   const [name, setName] = useState("");
