@@ -153,22 +153,8 @@ export default function ResetPassword() {
           </form>
 
           <p className="auth-switch">
-            <Link to="/login">Back to sign in</Link>
-            {" · "}
-            <button
-              type="button"
-              className="inline-button"
-              onClick={() => {
-                setMode(mode === "request" ? "update" : "request");
-                setError("");
-                setNotice("");
-              }}
-            >
-              {mode === "request"
-                ? "I have a reset link"
-                : "Request another link"}
-            </button>
-          </p>
+  <Link to="/login">Back to sign in</Link>
+</p>
         </div>
       </section>
     </div>
