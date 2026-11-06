@@ -4,6 +4,7 @@ import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminBulkUpload from "./pages/AdminBulkUpload";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Books from "./pages/Books";
@@ -23,17 +24,17 @@ function LandingRedirect() {
         <div className="elibrary-loader">
           <div className="elibrary-loader-ring" />
           <img
-  src={`${import.meta.env.BASE_URL}elibrary-icon.png`}
-  alt="Elibrary"
-  style={{
-    width: "55px",
-    height: "55px",
-    objectFit: "contain",
-    display: "block",
-    position: "relative",
-    zIndex: 2,
-  }}
-/>
+            src={`${import.meta.env.BASE_URL}elibrary-icon.png`}
+            alt="Elibrary"
+            style={{
+              width: "55px",
+              height: "55px",
+              objectFit: "contain",
+              display: "block",
+              position: "relative",
+              zIndex: 2,
+            }}
+          />
         </div>
       </div>
     );
@@ -68,6 +69,10 @@ export default function App() {
 
             <Route element={<AdminRoute />}>
               <Route path="/admin" element={<AdminDashboard />} />
+              <Route
+                path="/admin/bulk-upload"
+                element={<AdminBulkUpload />}
+              />
             </Route>
           </Route>
         </Route>
