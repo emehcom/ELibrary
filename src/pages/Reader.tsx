@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
-import { ArrowLeft, Download, Minus, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import {
+  ArrowLeft,
+  Download,
+  Minus,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Volume2,
+  Pause,
+  Play,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { Book } from "../types";
@@ -12,6 +25,39 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
   import.meta.url,
 ).toString();
+
+type SpeechChunk = {
+  page: number;
+  text: string;
+};
+
+type SpeechStatus = "idle" | "speaking" | "paused";
+
+const MAX_SPEECH_CHUNK_LENGTH = 1400;
+
+function splitTextIntoChunks(text: string, maxLength = MAX_SPEECH_CHUNK_LENGTH) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+
+  const chunks: string[] = [];
+  let remaining = normalized;
+
+  while (remaining.length > maxLength) {
+    let splitAt = remaining.lastIndexOf(". ", maxLength);
+
+    if (splitAt < maxLength * 0.5) {
+      splitAt = remaining.lastIndexOf(" ", maxLength);
+    }
+
+    if (splitAt < 1) splitAt = maxLength;
+
+    chunks.push(remaining.slice(0, splitAt + (remaining[splitAt] === "." ? 1 : 0)).trim());
+    remaining = remaining.slice(splitAt + (remaining[splitAt] === "." ? 1 : 0)).trim();
+  }
+
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
 
 export default function Reader() {
   const { id } = useParams();
@@ -25,7 +71,16 @@ export default function Reader() {
   const [stageWidth, setStageWidth] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pdfLoading, setPdfLoading] = useState(true);
+
+  const [speechStatus, setSpeechStatus] = useState<SpeechStatus>("idle");
+  const [speechPreparing, setSpeechPreparing] = useState(false);
+  const [speechError, setSpeechError] = useState("");
+
   const stageRef = useRef<HTMLDivElement>(null);
+  const pdfRef = useRef<PDFDocumentProxy | null>(null);
+  const speechQueueRef = useRef<SpeechChunk[]>([]);
+  const speechIndexRef = useRef(0);
+  const speechSessionRef = useRef(0);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -39,12 +94,24 @@ export default function Reader() {
     return () => observer.disconnect();
   }, [loading, url]);
 
+  const stopSpeaking = useCallback(() => {
+    speechSessionRef.current += 1;
+    window.speechSynthesis?.cancel();
+    speechQueueRef.current = [];
+    speechIndexRef.current = 0;
+    setSpeechStatus("idle");
+    setSpeechPreparing(false);
+  }, []);
+
   useEffect(() => {
     let active = true;
 
     async function load() {
+      stopSpeaking();
+      pdfRef.current = null;
       setLoading(true);
       setError("");
+      setSpeechError("");
       setUrl("");
       setBook(null);
 
@@ -101,21 +168,132 @@ export default function Reader() {
 
     return () => {
       active = false;
+      stopSpeaking();
     };
-  }, [id]);
+  }, [id, stopSpeaking]);
 
-  const onDocumentLoadSuccess = useCallback(
-    ({ numPages: totalPages }: { numPages: number }) => {
-      setNumPages(totalPages);
-      setPageNumber(1);
-      setPdfLoading(false);
-      setError("");
-    },
-    [],
-  );
+  const speakChunk = useCallback((index: number, session: number) => {
+    const chunk = speechQueueRef.current[index];
+
+    if (!chunk || session !== speechSessionRef.current) {
+      if (session === speechSessionRef.current) {
+        setSpeechStatus("idle");
+        speechQueueRef.current = [];
+        speechIndexRef.current = 0;
+      }
+      return;
+    }
+
+    speechIndexRef.current = index;
+    setPageNumber(chunk.page);
+
+    const utterance = new SpeechSynthesisUtterance(chunk.text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    utterance.onend = () => {
+      if (session !== speechSessionRef.current) return;
+      speakChunk(index + 1, session);
+    };
+
+    utterance.onerror = (event) => {
+      if (session !== speechSessionRef.current) return;
+      if (event.error !== "canceled" && event.error !== "interrupted") {
+        setSpeechError("Audio reading stopped unexpectedly. Try speaking again.");
+        setSpeechStatus("idle");
+      }
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  const startSpeaking = useCallback(async () => {
+    if (!pdfRef.current || speechPreparing) return;
+
+    if (!("speechSynthesis" in window)) {
+      setSpeechError("Your browser does not support audio reading.");
+      return;
+    }
+
+    setSpeechError("");
+    setSpeechPreparing(true);
+
+    try {
+      const pdf = pdfRef.current;
+      const queue: SpeechChunk[] = [];
+
+      for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
+        const page = await pdf.getPage(pageIndex);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        for (const text of splitTextIntoChunks(pageText)) {
+          queue.push({ page: pageIndex, text });
+        }
+      }
+
+      if (queue.length === 0) {
+        setSpeechError(
+          "No selectable text was found in this PDF. Scanned PDFs need OCR before they can be read aloud.",
+        );
+        setSpeechPreparing(false);
+        return;
+      }
+
+      speechQueueRef.current = queue;
+      speechIndexRef.current = 0;
+      window.speechSynthesis.cancel();
+
+      const session = ++speechSessionRef.current;
+      setSpeechPreparing(false);
+      setSpeechStatus("speaking");
+      speakChunk(0, session);
+    } catch (cause) {
+      console.error("Could not extract PDF text for audio reading:", cause);
+      setSpeechError("Could not prepare this PDF for audio reading.");
+      setSpeechPreparing(false);
+      setSpeechStatus("idle");
+    }
+  }, [speechPreparing, speakChunk]);
+
+  const pauseOrResume = useCallback(() => {
+    if (!("speechSynthesis" in window)) return;
+
+    if (speechStatus === "speaking") {
+      window.speechSynthesis.pause();
+      setSpeechStatus("paused");
+    } else if (speechStatus === "paused") {
+      window.speechSynthesis.resume();
+      setSpeechStatus("speaking");
+    }
+  }, [speechStatus]);
+
+  const restartSpeaking = useCallback(() => {
+    if (speechQueueRef.current.length === 0) return;
+
+    window.speechSynthesis.cancel();
+    const session = ++speechSessionRef.current;
+    speechIndexRef.current = 0;
+    setSpeechError("");
+    setSpeechStatus("speaking");
+    speakChunk(0, session);
+  }, [speakChunk]);
+
+  const onDocumentLoadSuccess = useCallback((pdf: PDFDocumentProxy) => {
+    pdfRef.current = pdf;
+    setNumPages(pdf.numPages);
+    setPageNumber(1);
+    setPdfLoading(false);
+    setError("");
+  }, []);
 
   const onDocumentLoadError = useCallback((cause: Error) => {
     console.error("PDF rendering failed:", cause);
+    pdfRef.current = null;
     setPdfLoading(false);
     setError(
       "The PDF could not be displayed. Check your connection and try again.",
@@ -272,6 +450,63 @@ export default function Reader() {
                     />
                   )}
                 </Document>
+              </div>
+            )}
+
+            {url && !pdfLoading && !error && (
+              <div className="pdf-speech-widget">
+                {speechStatus === "idle" ? (
+                  <button
+                    type="button"
+                    className="pdf-speak-button"
+                    onClick={() => void startSpeaking()}
+                    disabled={speechPreparing}
+                  >
+                    <Volume2 size={18} />
+                    <span>{speechPreparing ? "Preparing audio…" : "Speak PDF"}</span>
+                  </button>
+                ) : (
+                  <div className="pdf-speech-controls" aria-label="PDF audio controls">
+                    <button
+                      type="button"
+                      className="pdf-speech-control"
+                      onClick={pauseOrResume}
+                      title={speechStatus === "paused" ? "Resume reading" : "Pause reading"}
+                      aria-label={speechStatus === "paused" ? "Resume reading" : "Pause reading"}
+                    >
+                      {speechStatus === "paused" ? <Play size={18} /> : <Pause size={18} />}
+                      <span>{speechStatus === "paused" ? "Resume" : "Pause"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pdf-speech-control"
+                      onClick={restartSpeaking}
+                      title="Restart reading"
+                      aria-label="Restart reading"
+                    >
+                      <RotateCcw size={18} />
+                      <span>Restart</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pdf-speech-control pdf-speech-exit"
+                      onClick={stopSpeaking}
+                      title="Exit audio reading"
+                      aria-label="Exit audio reading"
+                    >
+                      <X size={18} />
+                      <span>Exit</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {speechError && (
+              <div className="pdf-speech-error" role="alert">
+                {speechError}
               </div>
             )}
           </div>

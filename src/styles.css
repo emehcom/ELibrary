@@ -426,3 +426,119 @@
     transform: rotate(360deg);
   }
 }
+
+
+/* PDF Read Aloud controls */
+.pdf-stage {
+  position: relative;
+}
+
+.pdf-speech-widget {
+  position: absolute;
+  right: 24px;
+  bottom: 22px;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.pdf-speak-button,
+.pdf-speech-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 17px;
+  border: none;
+  border-radius: 30px;
+  background: #263b55;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.pdf-speak-button:hover,
+.pdf-speech-control:hover {
+  background: #36516f;
+}
+
+.pdf-speak-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.pdf-speech-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border-radius: 30px;
+  background: #263b55;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.18);
+}
+
+.pdf-speech-control {
+  min-height: 38px;
+  padding: 0 12px;
+  box-shadow: none;
+  background: transparent;
+}
+
+.pdf-speech-control:hover {
+  background: #405873;
+}
+
+.pdf-speech-exit {
+  background: #9c3d3d;
+}
+
+.pdf-speech-exit:hover {
+  background: #b34848;
+}
+
+.pdf-speech-error {
+  position: absolute;
+  right: 20px;
+  bottom: 82px;
+  z-index: 51;
+  max-width: min(360px, calc(100% - 40px));
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff0ed;
+  color: #a43f2e;
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 600px) {
+  .pdf-speech-widget {
+    right: 12px;
+    bottom: 16px;
+  }
+
+  .pdf-speak-button {
+    min-height: 43px;
+    padding: 0 15px;
+  }
+
+  .pdf-speech-controls {
+    gap: 3px;
+    padding: 5px;
+  }
+
+  .pdf-speech-control {
+    min-height: 36px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+
+  .pdf-speech-error {
+    right: 12px;
+    bottom: 70px;
+  }
+}
