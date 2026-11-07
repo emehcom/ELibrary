@@ -1,4 +1,3 @@
-
 import { useEffect, useState, type FormEvent } from "react";
 import {
   Bot,
@@ -21,6 +20,14 @@ type FavourChatProps = {
   userId: string | null;
 };
 
+type ActiveReadingContext = {
+  bookId: string;
+  bookTitle: string;
+  bookAuthor: string;
+  currentPage: number;
+  pageText: string;
+};
+
 export default function FavourChat({ userId }: FavourChatProps) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -29,6 +36,28 @@ export default function FavourChat({ userId }: FavourChatProps) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [readingContext, setReadingContext] =
+    useState<ActiveReadingContext | null>(null);
+
+  useEffect(() => {
+    function handleReadingContext(event: Event) {
+      const customEvent =
+        event as CustomEvent<ActiveReadingContext | null>;
+      setReadingContext(customEvent.detail);
+    }
+
+    window.addEventListener(
+      "elibrary:reading-context",
+      handleReadingContext,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "elibrary:reading-context",
+        handleReadingContext,
+      );
+    };
+  }, []);
 
   useEffect(() => {
     if (!userId) {
@@ -93,7 +122,6 @@ export default function FavourChat({ userId }: FavourChatProps) {
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(message.content);
-
     utterance.onstart = () => setSpeakingId(message.id);
     utterance.onend = () => setSpeakingId(null);
     utterance.onerror = () => setSpeakingId(null);
@@ -123,7 +151,6 @@ export default function FavourChat({ userId }: FavourChatProps) {
     event.preventDefault();
 
     const content = input.trim();
-
     if (!content || sending || !userId) return;
 
     setSending(true);
@@ -131,24 +158,23 @@ export default function FavourChat({ userId }: FavourChatProps) {
     setInput("");
 
     try {
-      // The Edge Function now saves both the user message and AI response.
-      // Do not insert the user's message directly from this component.
       const { data, error } = await supabase.functions.invoke("favour-chat", {
         body: {
           message: content,
+          bookId: readingContext?.bookId ?? null,
+          bookTitle: readingContext?.bookTitle ?? "",
+          bookAuthor: readingContext?.bookAuthor ?? "",
+          currentPage: readingContext?.currentPage ?? null,
+          pageText: readingContext?.pageText ?? "",
         },
       });
 
       if (error || !data) {
         console.error("Favour AI request failed:", error ?? data);
-
         setNotice(
           data?.error ??
             "Favour couldn't reply just now. Please try again later.",
         );
-
-        // The Edge Function may already have saved the user's message.
-        // Refresh the conversation to avoid losing it from the interface.
         await refreshMessages();
         return;
       }
@@ -167,15 +193,11 @@ export default function FavourChat({ userId }: FavourChatProps) {
         ]);
 
         setNotice(
-          data.provider
-            ? `Answered using ${data.provider}.`
-            : "",
+          data.provider ? `Answered using ${data.provider}.` : "",
         );
-
         return;
       }
 
-      // The AI generated a reply, but the database could not save it.
       if (typeof data.reply === "string" && data.reply.trim()) {
         const temporaryReply: ChatMessage = {
           id: `temporary-${Date.now()}`,
@@ -184,27 +206,22 @@ export default function FavourChat({ userId }: FavourChatProps) {
         };
 
         setMessages((current) => [...current, temporaryReply]);
-
         setNotice(
           data.warning ??
             "Favour replied, but the response could not be saved to your history.",
         );
-
         return;
       }
 
       setNotice(
         data.error ?? "Favour could not generate a response. Please try again.",
       );
-
       await refreshMessages();
     } catch (error) {
       console.error("Unexpected Favour chat error:", error);
-
       setNotice(
         "A connection error occurred. Check your internet connection and try again.",
       );
-
       await refreshMessages();
     } finally {
       setSending(false);
@@ -224,11 +241,12 @@ export default function FavourChat({ userId }: FavourChatProps) {
               <span className="favour-avatar">
                 <Bot size={22} />
               </span>
-
               <div>
                 <strong>Favour</strong>
                 <span className="favour-subtitle">
-                  Your personal study assistant
+                  {readingContext
+                    ? `Reading: ${readingContext.bookTitle} · Page ${readingContext.currentPage}`
+                    : "Your personal study assistant"}
                 </span>
               </div>
             </div>
@@ -246,9 +264,7 @@ export default function FavourChat({ userId }: FavourChatProps) {
 
           <div className="favour-messages">
             {loadingMessages && (
-              <p className="favour-subtitle">
-                Loading your conversation…
-              </p>
+              <p className="favour-subtitle">Loading your conversation…</p>
             )}
 
             {!loadingMessages && messages.length === 0 && (
@@ -257,7 +273,6 @@ export default function FavourChat({ userId }: FavourChatProps) {
                   Hello! I'm Favour, your personal learning assistant.
                   Your conversation will be saved here as we learn together.
                 </p>
-
                 <button
                   type="button"
                   className="favour-speak-button"
@@ -275,7 +290,6 @@ export default function FavourChat({ userId }: FavourChatProps) {
                   ) : (
                     <Volume2 size={17} />
                   )}
-
                   <span>
                     {speakingId === "welcome" ? "Stop" : "Read aloud"}
                   </span>
@@ -289,7 +303,6 @@ export default function FavourChat({ userId }: FavourChatProps) {
                 className={`favour-message favour-message-${message.role}`}
               >
                 <p>{message.content}</p>
-
                 {message.role === "assistant" && (
                   <button
                     type="button"
@@ -301,9 +314,7 @@ export default function FavourChat({ userId }: FavourChatProps) {
                         : "Read response aloud"
                     }
                     title={
-                      speakingId === message.id
-                        ? "Stop speaking"
-                        : "Read aloud"
+                      speakingId === message.id ? "Stop speaking" : "Read aloud"
                     }
                   >
                     {speakingId === message.id ? (
@@ -311,7 +322,6 @@ export default function FavourChat({ userId }: FavourChatProps) {
                     ) : (
                       <Volume2 size={17} />
                     )}
-
                     <span>
                       {speakingId === message.id ? "Stop" : "Read aloud"}
                     </span>
@@ -340,7 +350,6 @@ export default function FavourChat({ userId }: FavourChatProps) {
               maxLength={4000}
               disabled={sending || loadingMessages}
             />
-
             <button
               type="submit"
               disabled={!input.trim() || sending || loadingMessages}

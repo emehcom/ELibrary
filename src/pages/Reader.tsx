@@ -20,7 +20,6 @@ import type { Book } from "../types";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-// Configure PDF.js to use its worker with Vite.
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
   import.meta.url,
@@ -32,6 +31,14 @@ type SpeechChunk = {
 };
 
 type SpeechStatus = "idle" | "speaking" | "paused";
+
+type ActiveReadingContext = {
+  bookId: string;
+  bookTitle: string;
+  bookAuthor: string;
+  currentPage: number;
+  pageText: string;
+};
 
 const MAX_SPEECH_CHUNK_LENGTH = 1400;
 
@@ -51,12 +58,19 @@ function splitTextIntoChunks(text: string, maxLength = MAX_SPEECH_CHUNK_LENGTH) 
 
     if (splitAt < 1) splitAt = maxLength;
 
-    chunks.push(remaining.slice(0, splitAt + (remaining[splitAt] === "." ? 1 : 0)).trim());
-    remaining = remaining.slice(splitAt + (remaining[splitAt] === "." ? 1 : 0)).trim();
+    const includeBoundary = remaining[splitAt] === ". " ? 1 : 0;
+    chunks.push(remaining.slice(0, splitAt + includeBoundary).trim());
+    remaining = remaining.slice(splitAt + includeBoundary).trim();
   }
 
   if (remaining) chunks.push(remaining);
   return chunks;
+}
+
+function publishReadingContext(context: ActiveReadingContext | null) {
+  window.dispatchEvent(
+    new CustomEvent("elibrary:reading-context", { detail: context }),
+  );
 }
 
 export default function Reader() {
@@ -109,11 +123,13 @@ export default function Reader() {
     async function load() {
       stopSpeaking();
       pdfRef.current = null;
+      publishReadingContext(null);
       setLoading(true);
       setError("");
       setSpeechError("");
       setUrl("");
       setBook(null);
+      setPdfLoading(true);
 
       if (!id) {
         setError("Book not found.");
@@ -169,8 +185,60 @@ export default function Reader() {
     return () => {
       active = false;
       stopSpeaking();
+      publishReadingContext(null);
     };
   }, [id, stopSpeaking]);
+
+  // Publish the text and metadata for the page currently displayed in Reader.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function updateReadingContext() {
+      const pdf = pdfRef.current;
+
+      if (!book || !url || pdfLoading || !pdf) {
+        publishReadingContext(null);
+        return;
+      }
+
+      try {
+        const page = await pdf.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        if (cancelled) return;
+
+        publishReadingContext({
+          bookId: book.id,
+          bookTitle: book.title,
+          bookAuthor: book.author ?? "Unknown author",
+          currentPage: pageNumber,
+          pageText: pageText.slice(0, 12000),
+        });
+      } catch (cause) {
+        if (!cancelled) {
+          console.error("Could not extract the current reading page:", cause);
+          publishReadingContext({
+            bookId: book.id,
+            bookTitle: book.title,
+            bookAuthor: book.author ?? "Unknown author",
+            currentPage: pageNumber,
+            pageText: "",
+          });
+        }
+      }
+    }
+
+    void updateReadingContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [book, url, pdfLoading, pageNumber]);
 
   const speakChunk = useCallback((index: number, session: number) => {
     const chunk = speechQueueRef.current[index];
@@ -295,9 +363,8 @@ export default function Reader() {
     console.error("PDF rendering failed:", cause);
     pdfRef.current = null;
     setPdfLoading(false);
-    setError(
-      "The PDF could not be displayed. Check your connection and try again.",
-    );
+    setError("The PDF could not be displayed. Check your connection and try again.");
+    publishReadingContext(null);
   }, []);
 
   const pageWidth = Math.max(
@@ -320,7 +387,6 @@ export default function Reader() {
       return;
     }
 
-    // Only the explicit Download action initiates a download.
     window.location.assign(data.signedUrl);
   }
 
@@ -397,15 +463,11 @@ export default function Reader() {
                 <ChevronLeft size={19} />
               </button>
 
-              <span>
-                Page {pageNumber} of {numPages}
-              </span>
+              <span>Page {pageNumber} of {numPages}</span>
 
               <button
                 className="icon-button"
-                onClick={() =>
-                  setPageNumber((p) => Math.min(numPages, p + 1))
-                }
+                onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
                 disabled={pageNumber >= numPages}
                 aria-label="Next page"
                 title="Next page"
