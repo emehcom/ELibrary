@@ -749,3 +749,227 @@
 .reader-speech-extra button:active {
   transform: scale(0.94);
 }
+
+/* Elibrary PDF reader interaction and layout fixes.
+   Append this block to the END of src/styles.css so it overrides older rules. */
+.reader-page-modern {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: #eef0f3;
+}
+
+.reader-toolbar-modern {
+  position: relative;
+  z-index: 100;
+  display: flex;
+  flex: 0 0 62px;
+  width: 100%;
+  min-height: 62px;
+  pointer-events: auto;
+  background: #fbfbf8;
+}
+
+.reader-back-modern,
+.reader-controls-modern,
+.reader-controls-modern button {
+  position: relative;
+  z-index: 101;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.reader-back-modern {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  min-width: 36px;
+  min-height: 40px;
+}
+
+.reader-title-modern {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-controls-modern {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.reader-controls-modern .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 40px;
+  min-width: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #183451;
+  cursor: pointer;
+}
+
+.reader-controls-modern .icon-button:hover:not(:disabled) {
+  background: #e9eef3;
+}
+
+.reader-controls-modern .icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.reader-controls-modern .reader-audio-exit {
+  color: #a43f3a;
+}
+
+.reader-content {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pdf-stage-continuous {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  padding: 0 0 24px;
+  margin: 0;
+  background: #e9ebef;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y pinch-zoom;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.pdf-stage-continuous::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.pdf-stage-continuous > .react-pdf__Document {
+  display: block;
+  width: 100%;
+  min-width: 100%;
+}
+
+.pdf-page-wrap {
+  position: relative;
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  margin: 0 auto 10px;
+  background: #fff;
+  box-shadow: 0 2px 9px rgb(20 30 45 / 10%);
+}
+
+.pdf-page-wrap .react-pdf__Page {
+  width: auto !important;
+  margin: 0 auto;
+  background: #fff;
+}
+
+.pdf-page-wrap .react-pdf__Page canvas {
+  display: block;
+  max-width: none !important;
+  height: auto !important;
+}
+
+.pdf-page-wrap .react-pdf__Page__textContent,
+.pdf-page-wrap .react-pdf__Page__annotations {
+  max-width: 100%;
+}
+
+.pdf-page-number {
+  pointer-events: none;
+}
+
+.reader-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: #eef0f3;
+}
+
+.pdf-speech-error {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 120;
+  max-width: min(380px, calc(100% - 32px));
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fff0ed;
+  color: #a43f2e;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 12%);
+}
+
+@media (max-width: 720px) {
+  .reader-toolbar-modern {
+    flex-basis: 58px;
+    min-height: 58px;
+    height: 58px;
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  .reader-title-modern {
+    font-size: 11px;
+  }
+
+  .reader-controls-modern {
+    gap: 1px;
+  }
+
+  .reader-controls-modern .icon-button {
+    flex-basis: 32px;
+    width: 32px;
+    min-width: 32px;
+    height: 38px;
+  }
+
+  .reader-controls-modern .zoom-value {
+    min-width: 31px;
+    font-size: 10px;
+  }
+
+  .reader-toolbar-divider {
+    margin: 0 2px;
+  }
+
+  .pdf-stage-continuous {
+    background: #fff;
+    padding-bottom: 12px;
+  }
+
+  .pdf-page-wrap {
+    margin-bottom: 5px;
+    box-shadow: none;
+  }
+}
