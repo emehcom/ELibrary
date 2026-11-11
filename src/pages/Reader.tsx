@@ -3,8 +3,11 @@ import { Document, Page, pdfjs } from "react-pdf";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import {
   ArrowLeft,
+  Download,
   Minus,
   Plus,
+  ChevronLeft,
+  ChevronRight,
   Volume2,
   Pause,
   Play,
@@ -22,8 +25,13 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-type SpeechChunk = { page: number; text: string };
+type SpeechChunk = {
+  page: number;
+  text: string;
+};
+
 type SpeechStatus = "idle" | "speaking" | "paused";
+
 type ActiveReadingContext = {
   bookId: string;
   bookTitle: string;
@@ -32,7 +40,7 @@ type ActiveReadingContext = {
   pageText: string;
 };
 
-const MAX_SPEECH_CHUNK_LENGTH = 1100;
+const MAX_SPEECH_CHUNK_LENGTH = 1400;
 
 function splitTextIntoChunks(text: string, maxLength = MAX_SPEECH_CHUNK_LENGTH) {
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -43,14 +51,16 @@ function splitTextIntoChunks(text: string, maxLength = MAX_SPEECH_CHUNK_LENGTH) 
 
   while (remaining.length > maxLength) {
     let splitAt = remaining.lastIndexOf(". ", maxLength);
-    if (splitAt < maxLength * 0.45) {
+
+    if (splitAt < maxLength * 0.5) {
       splitAt = remaining.lastIndexOf(" ", maxLength);
     }
+
     if (splitAt < 1) splitAt = maxLength;
 
-    const end = splitAt + (remaining[splitAt] === "." ? 1 : 0);
-    chunks.push(remaining.slice(0, end).trim());
-    remaining = remaining.slice(end).trim();
+    const includeBoundary = remaining[splitAt] === ". " ? 1 : 0;
+    chunks.push(remaining.slice(0, splitAt + includeBoundary).trim());
+    remaining = remaining.slice(splitAt + includeBoundary).trim();
   }
 
   if (remaining) chunks.push(remaining);
@@ -75,21 +85,34 @@ export default function Reader() {
   const [stageWidth, setStageWidth] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pdfLoading, setPdfLoading] = useState(true);
+
   const [speechStatus, setSpeechStatus] = useState<SpeechStatus>("idle");
   const [speechPreparing, setSpeechPreparing] = useState(false);
   const [speechError, setSpeechError] = useState("");
 
   const stageRef = useRef<HTMLDivElement>(null);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
-  const pageRefs = useRef(new Map<number, HTMLDivElement>());
   const speechQueueRef = useRef<SpeechChunk[]>([]);
+  const speechIndexRef = useRef(0);
   const speechSessionRef = useRef(0);
 
+  useEffect(() => {
+    const element = stageRef.current;
+    if (!element) return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      setStageWidth(entry.contentRect.width);
+    });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [loading, url]);
+
   const stopSpeaking = useCallback(() => {
-    // Invalidate callbacks belonging to the previous speech session.
     speechSessionRef.current += 1;
-    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    window.speechSynthesis?.cancel();
     speechQueueRef.current = [];
+    speechIndexRef.current = 0;
     setSpeechStatus("idle");
     setSpeechPreparing(false);
   }, []);
@@ -97,19 +120,16 @@ export default function Reader() {
   useEffect(() => {
     let active = true;
 
-    async function loadBook() {
+    async function load() {
       stopSpeaking();
       pdfRef.current = null;
-      pageRefs.current.clear();
+      publishReadingContext(null);
       setLoading(true);
       setError("");
       setSpeechError("");
       setUrl("");
       setBook(null);
-      setNumPages(0);
-      setPageNumber(1);
       setPdfLoading(true);
-      setScale(1);
 
       if (!id) {
         setError("Book not found.");
@@ -125,6 +145,7 @@ export default function Reader() {
         .maybeSingle();
 
       if (!active) return;
+
       if (findError || !found) {
         setError(findError?.message || "This book is not available.");
         setLoading(false);
@@ -146,15 +167,21 @@ export default function Reader() {
       );
 
       if (!active) return;
+
       if (signedError || !data?.signedUrl) {
         setError(signedError?.message || "Could not prepare the PDF.");
       } else {
         setUrl(data.signedUrl);
+        setPdfLoading(true);
+        setPageNumber(1);
+        setNumPages(0);
       }
+
       setLoading(false);
     }
 
-    void loadBook();
+    void load();
+
     return () => {
       active = false;
       stopSpeaking();
@@ -162,50 +189,85 @@ export default function Reader() {
     };
   }, [id, stopSpeaking]);
 
-  // Measure the actual PDF viewport. The observer is reattached when the PDF loads.
+  // Publish the text and metadata for the page currently displayed in Reader.
   useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
+    let cancelled = false;
 
-    const updateWidth = () => setStageWidth(stage.clientWidth);
-    updateWidth();
+    async function updateReadingContext() {
+      const pdf = pdfRef.current;
 
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [url, loading, pdfLoading]);
+      if (!book || !url || pdfLoading || !pdf) {
+        publishReadingContext(null);
+        return;
+      }
+
+      try {
+        const page = await pdf.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        if (cancelled) return;
+
+        publishReadingContext({
+          bookId: book.id,
+          bookTitle: book.title,
+          bookAuthor: book.author ?? "Unknown author",
+          currentPage: pageNumber,
+          pageText: pageText.slice(0, 12000),
+        });
+      } catch (cause) {
+        if (!cancelled) {
+          console.error("Could not extract the current reading page:", cause);
+          publishReadingContext({
+            bookId: book.id,
+            bookTitle: book.title,
+            bookAuthor: book.author ?? "Unknown author",
+            currentPage: pageNumber,
+            pageText: "",
+          });
+        }
+      }
+    }
+
+    void updateReadingContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [book, url, pdfLoading, pageNumber]);
 
   const speakChunk = useCallback((index: number, session: number) => {
     const chunk = speechQueueRef.current[index];
 
-    if (session !== speechSessionRef.current) return;
-    if (!chunk) {
-      speechQueueRef.current = [];
-      setSpeechStatus("idle");
+    if (!chunk || session !== speechSessionRef.current) {
+      if (session === speechSessionRef.current) {
+        setSpeechStatus("idle");
+        speechQueueRef.current = [];
+        speechIndexRef.current = 0;
+      }
       return;
     }
 
+    speechIndexRef.current = index;
     setPageNumber(chunk.page);
-    pageRefs.current.get(chunk.page)?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
 
     const utterance = new SpeechSynthesisUtterance(chunk.text);
     utterance.rate = 1;
     utterance.pitch = 1;
 
     utterance.onend = () => {
-      if (session === speechSessionRef.current) {
-        speakChunk(index + 1, session);
-      }
+      if (session !== speechSessionRef.current) return;
+      speakChunk(index + 1, session);
     };
 
     utterance.onerror = (event) => {
       if (session !== speechSessionRef.current) return;
       if (event.error !== "canceled" && event.error !== "interrupted") {
-        setSpeechError("Audio reading stopped unexpectedly. Try again.");
-        speechQueueRef.current = [];
+        setSpeechError("Audio reading stopped unexpectedly. Try speaking again.");
         setSpeechStatus("idle");
       }
     };
@@ -214,13 +276,13 @@ export default function Reader() {
   }, []);
 
   const startSpeaking = useCallback(async () => {
-    if (!pdfRef.current || speechPreparing || pdfLoading) return;
+    if (!pdfRef.current || speechPreparing) return;
+
     if (!("speechSynthesis" in window)) {
-      setSpeechError("This browser does not support audio reading.");
+      setSpeechError("Your browser does not support audio reading.");
       return;
     }
 
-    const session = ++speechSessionRef.current;
     setSpeechError("");
     setSpeechPreparing(true);
 
@@ -229,45 +291,42 @@ export default function Reader() {
       const queue: SpeechChunk[] = [];
 
       for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
-        if (session !== speechSessionRef.current) return;
-
         const page = await pdf.getPage(pageIndex);
-        const content = await page.getTextContent();
-        const pageText = content.items
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
           .map((item) => ("str" in item ? item.str : ""))
           .join(" ")
           .replace(/\s+/g, " ")
           .trim();
 
-        for (const chunk of splitTextIntoChunks(pageText)) {
-          queue.push({ page: pageIndex, text: chunk });
+        for (const text of splitTextIntoChunks(pageText)) {
+          queue.push({ page: pageIndex, text });
         }
       }
 
-      if (session !== speechSessionRef.current) return;
-
-      if (!queue.length) {
+      if (queue.length === 0) {
         setSpeechError(
-          "No selectable text was found. Scanned PDFs need OCR before they can be read aloud.",
+          "No selectable text was found in this PDF. Scanned PDFs need OCR before they can be read aloud.",
         );
         setSpeechPreparing(false);
         return;
       }
 
       speechQueueRef.current = queue;
+      speechIndexRef.current = 0;
       window.speechSynthesis.cancel();
+
+      const session = ++speechSessionRef.current;
       setSpeechPreparing(false);
       setSpeechStatus("speaking");
       speakChunk(0, session);
     } catch (cause) {
       console.error("Could not extract PDF text for audio reading:", cause);
-      if (session === speechSessionRef.current) {
-        setSpeechError("Could not prepare this PDF for audio reading.");
-        setSpeechPreparing(false);
-        setSpeechStatus("idle");
-      }
+      setSpeechError("Could not prepare this PDF for audio reading.");
+      setSpeechPreparing(false);
+      setSpeechStatus("idle");
     }
-  }, [pdfLoading, speechPreparing, speakChunk]);
+  }, [speechPreparing, speakChunk]);
 
   const pauseOrResume = useCallback(() => {
     if (!("speechSynthesis" in window)) return;
@@ -282,9 +341,11 @@ export default function Reader() {
   }, [speechStatus]);
 
   const restartSpeaking = useCallback(() => {
-    if (!speechQueueRef.current.length) return;
+    if (speechQueueRef.current.length === 0) return;
+
     window.speechSynthesis.cancel();
     const session = ++speechSessionRef.current;
+    speechIndexRef.current = 0;
     setSpeechError("");
     setSpeechStatus("speaking");
     speakChunk(0, session);
@@ -303,84 +364,85 @@ export default function Reader() {
     pdfRef.current = null;
     setPdfLoading(false);
     setError("The PDF could not be displayed. Check your connection and try again.");
+    publishReadingContext(null);
   }, []);
 
-  const handleStageScroll = useCallback(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
+  const pageWidth = Math.max(
+    1,
+    Math.min(Math.max(stageWidth - 32, 280), 850) * scale,
+  );
 
-    const stageTop = stage.getBoundingClientRect().top;
-    let closestPage = 1;
-    let closestDistance = Number.POSITIVE_INFINITY;
+  async function downloadPdf() {
+    if (!book?.allow_download) return;
 
-    pageRefs.current.forEach((element, page) => {
-      const distance = Math.abs(element.getBoundingClientRect().top - stageTop);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestPage = page;
-      }
-    });
+    setError("");
 
-    setPageNumber((current) => (current === closestPage ? current : closestPage));
-  }, []);
+    const { data, error: downloadError } =
+      await supabase.functions.invoke("get-book-url", {
+        body: { bookId: book.id, action: "download" },
+      });
 
-  useEffect(() => {
-    if (!book || !url || pdfLoading || !pdfRef.current || !pageNumber) return;
-
-    let cancelled = false;
-
-    async function updateReadingContext() {
-      try {
-        const page = await pdfRef.current!.getPage(pageNumber);
-        const content = await page.getTextContent();
-        const pageText = content.items
-          .map((item) => ("str" in item ? item.str : ""))
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-
-        if (cancelled) return;
-        publishReadingContext({
-          bookId: book!.id,
-          bookTitle: book!.title,
-          bookAuthor: book!.author ?? "Unknown author",
-          currentPage: pageNumber,
-          pageText: pageText.slice(0, 12000),
-        });
-      } catch (cause) {
-        console.error("Could not extract current page for Favour:", cause);
-      }
+    if (downloadError || !data?.signedUrl) {
+      setError(downloadError?.message || "Download unavailable.");
+      return;
     }
 
-    void updateReadingContext();
-    return () => {
-      cancelled = true;
-    };
-  }, [book, url, pdfLoading, pageNumber]);
-
-  useEffect(() => {
-    window.dispatchEvent(
-      new CustomEvent("elibrary:reader-controls", { detail: true }),
-    );
-    return () => {
-      publishReadingContext(null);
-      window.dispatchEvent(
-        new CustomEvent("elibrary:reader-controls", { detail: true }),
-      );
-    };
-  }, []);
-
-  const pageWidth = Math.max(1, stageWidth * scale);
+    window.location.assign(data.signedUrl);
+  }
 
   return (
-    <div className="reader-page reader-page-modern">
+    <div className="reader-page">
+      <header className="reader-toolbar">
+        <Link to={`/books/${id}`} className="reader-back">
+          <ArrowLeft size={17} />
+          <span>Book details</span>
+        </Link>
+
+        <div className="reader-title">{book?.title || "PDF reader"}</div>
+
+        <div className="reader-controls">
+          <button
+            className="icon-button"
+            onClick={() => setScale((v) => Math.max(0.6, v - 0.1))}
+            title="Zoom out"
+            aria-label="Zoom out"
+            disabled={!url}
+          >
+            <Minus size={17} />
+          </button>
+
+          <span className="zoom-value">{Math.round(scale * 100)}%</span>
+
+          <button
+            className="icon-button"
+            onClick={() => setScale((v) => Math.min(1.6, v + 0.1))}
+            title="Zoom in"
+            aria-label="Zoom in"
+            disabled={!url}
+          >
+            <Plus size={17} />
+          </button>
+
+          {book?.allow_download && url && (
+            <button
+              className="icon-button"
+              onClick={() => void downloadPdf()}
+              title="Download PDF"
+              aria-label="Download PDF"
+            >
+              <Download size={17} />
+            </button>
+          )}
+        </div>
+      </header>
+
       {loading ? (
         <div className="screen-center">
           <div className="spinner" />
           <p>Preparing your reading space…</p>
         </div>
       ) : error && !url ? (
-        <div className="empty-state reader-error-state">
+        <div className="empty-state">
           <h3>Unable to open this book</h3>
           <p>{error}</p>
           <Link className="button button-secondary" to="/books">
@@ -389,127 +451,48 @@ export default function Reader() {
         </div>
       ) : (
         <>
-          <header className="reader-toolbar reader-toolbar-modern">
-            <Link
-              to={`/books/${id}`}
-              className="reader-back reader-back-modern reader-overlay-control"
-              aria-label="Back to book details"
-              title="Back to book details"
-            >
-              <ArrowLeft size={19} />
-            </Link>
+          {numPages > 0 && (
+            <div className="pdf-navigation">
+              <button
+                className="icon-button"
+                onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                disabled={pageNumber <= 1}
+                aria-label="Previous page"
+                title="Previous page"
+              >
+                <ChevronLeft size={19} />
+              </button>
 
-            <div className="reader-title reader-title-modern">
-              {book?.title || "PDF reader"}
+              <span>Page {pageNumber} of {numPages}</span>
+
+              <button
+                className="icon-button"
+                onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+                disabled={pageNumber >= numPages}
+                aria-label="Next page"
+                title="Next page"
+              >
+                <ChevronRight size={19} />
+              </button>
             </div>
+          )}
 
-            <div className="reader-controls reader-controls-modern">
-              <button
-                type="button"
-                className="icon-button reader-overlay-control"
-                onClick={() => setScale((value) => Math.max(0.6, Number((value - 0.1).toFixed(2))))}
-                title="Zoom out"
-                aria-label="Zoom out"
-                disabled={!url || pdfLoading || scale <= 0.6}
-              >
-                <Minus size={17} />
-              </button>
-
-              <span className="zoom-value" aria-live="polite">
-                {Math.round(scale * 100)}%
-              </span>
-
-              <button
-                type="button"
-                className="icon-button reader-overlay-control"
-                onClick={() => setScale((value) => Math.min(1.8, Number((value + 0.1).toFixed(2))))}
-                title="Zoom in"
-                aria-label="Zoom in"
-                disabled={!url || pdfLoading || scale >= 1.8}
-              >
-                <Plus size={17} />
-              </button>
-
-              <span className="reader-toolbar-divider" />
-
-              <button
-                type="button"
-                className="icon-button reader-audio-button reader-overlay-control"
-                onClick={() => {
-                  if (speechStatus === "idle") void startSpeaking();
-                  else pauseOrResume();
-                }}
-                disabled={!url || pdfLoading || speechPreparing}
-                title={
-                  speechPreparing
-                    ? "Preparing audio"
-                    : speechStatus === "idle"
-                      ? "Read PDF aloud"
-                      : speechStatus === "paused"
-                        ? "Resume reading"
-                        : "Pause reading"
-                }
-                aria-label={
-                  speechStatus === "idle"
-                    ? "Read PDF aloud"
-                    : speechStatus === "paused"
-                      ? "Resume reading"
-                      : "Pause reading"
-                }
-              >
-                {speechStatus === "idle" ? (
-                  <Volume2 size={21} />
-                ) : speechStatus === "paused" ? (
-                  <Play size={21} />
-                ) : (
-                  <Pause size={21} />
-                )}
-              </button>
-
-              {(speechStatus !== "idle" || speechPreparing) && (
-                <>
-                  <button
-                    type="button"
-                    className="icon-button reader-audio-extra reader-overlay-control"
-                    onClick={restartSpeaking}
-                    disabled={speechPreparing || !speechQueueRef.current.length}
-                    title="Restart reading"
-                    aria-label="Restart reading"
-                  >
-                    <RotateCcw size={17} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button reader-audio-extra reader-audio-exit reader-overlay-control"
-                    onClick={() => {
-                      stopSpeaking();
-                      setSpeechError("");
-                    }}
-                    title="Exit read aloud mode"
-                    aria-label="Exit read aloud mode"
-                  >
-                    <X size={18} />
-                  </button>
-                </>
-              )}
+          {error && (
+            <div className="alert error" role="alert">
+              {error}
             </div>
-          </header>
+          )}
 
-          <main className="reader-content">
+          <div className="pdf-stage" ref={stageRef}>
             {pdfLoading && (
-              <div className="pdf-loading reader-loading">
+              <div className="pdf-loading">
                 <div className="spinner" />
                 <p>Loading PDF for online reading…</p>
               </div>
             )}
 
-            <div
-              className="pdf-stage pdf-stage-continuous"
-              ref={stageRef}
-              onScroll={handleStageScroll}
-              aria-label="PDF pages. Swipe or scroll vertically to read."
-            >
-              {url && (
+            {url && (
+              <div className="pdf-document">
                 <Document
                   file={url}
                   onLoadSuccess={onDocumentLoadSuccess}
@@ -518,43 +501,77 @@ export default function Reader() {
                   error=""
                   noData="No PDF was provided."
                 >
-                  {numPages > 0 && stageWidth > 0 &&
-                    Array.from({ length: numPages }, (_, index) => {
-                      const page = index + 1;
-                      return (
-                        <div
-                          className="pdf-page-wrap"
-                          key={page}
-                          ref={(element) => {
-                            if (element) pageRefs.current.set(page, element);
-                            else pageRefs.current.delete(page);
-                          }}
-                        >
-                          <Page
-                            pageNumber={page}
-                            width={pageWidth}
-                            renderTextLayer
-                            renderAnnotationLayer
-                            loading={
-                              <div className="pdf-page-loading">
-                                Rendering page {page}…
-                              </div>
-                            }
-                          />
-                          <span className="pdf-page-number">{page}</span>
-                        </div>
-                      );
-                    })}
+                  {numPages > 0 && stageWidth > 0 && (
+                    <Page
+                      key={`${pageNumber}-${Math.round(pageWidth)}`}
+                      pageNumber={pageNumber}
+                      width={pageWidth}
+                      renderTextLayer
+                      renderAnnotationLayer
+                      loading={<p>Rendering page…</p>}
+                    />
+                  )}
                 </Document>
-              )}
-            </div>
+              </div>
+            )}
+
+            {url && !pdfLoading && !error && (
+              <div className="pdf-speech-widget">
+                {speechStatus === "idle" ? (
+                  <button
+                    type="button"
+                    className="pdf-speak-button"
+                    onClick={() => void startSpeaking()}
+                    disabled={speechPreparing}
+                  >
+                    <Volume2 size={18} />
+                    <span>{speechPreparing ? "Preparing audio…" : "Speak PDF"}</span>
+                  </button>
+                ) : (
+                  <div className="pdf-speech-controls" aria-label="PDF audio controls">
+                    <button
+                      type="button"
+                      className="pdf-speech-control"
+                      onClick={pauseOrResume}
+                      title={speechStatus === "paused" ? "Resume reading" : "Pause reading"}
+                      aria-label={speechStatus === "paused" ? "Resume reading" : "Pause reading"}
+                    >
+                      {speechStatus === "paused" ? <Play size={18} /> : <Pause size={18} />}
+                      <span>{speechStatus === "paused" ? "Resume" : "Pause"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pdf-speech-control"
+                      onClick={restartSpeaking}
+                      title="Restart reading"
+                      aria-label="Restart reading"
+                    >
+                      <RotateCcw size={18} />
+                      <span>Restart</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pdf-speech-control pdf-speech-exit"
+                      onClick={stopSpeaking}
+                      title="Exit audio reading"
+                      aria-label="Exit audio reading"
+                    >
+                      <X size={18} />
+                      <span>Exit</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {speechError && (
-              <div className="pdf-speech-error reader-overlay-control" role="alert">
+              <div className="pdf-speech-error" role="alert">
                 {speechError}
               </div>
             )}
-          </main>
+          </div>
         </>
       )}
     </div>
